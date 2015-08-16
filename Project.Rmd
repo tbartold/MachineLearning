@@ -1,0 +1,177 @@
+---
+title: "Practical Machine Learning - Project"
+output: html_document
+---
+##Summary
+
+The project exercises some knowledge of machine learning in a practical way. A large data set is loaded, cleaned, and used to determine the features that can be used to make 'predictions' about one of the features. The goal is to use the data to identify whether the observation fits performing barbell lifts correctly or incorrectly in one of 5 different ways (q.v. http://groupware.les.inf.puc-rio.br/har). This is the "classe" variable in the training set. Different models are used to fit the data, based on samples from the training data set, and check the predictions against a distinct sample of the data. The best modeling technique is chosen (Random Forest) and used to predict outcomes of previously unseen data. The predictions are then submitted to verify them.
+
+##Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+##Data 
+
+Initially, we'll need to load a number of packages, but should only load them if necessary.
+
+```{r, results='hide', message=FALSE, warning=FALSE}
+# install and require packages
+install <- function(x) {
+  if (x %in% installed.packages()[,"Package"] == FALSE) {
+    install.packages(x,dep=TRUE)
+  }
+  if(!require(x,character.only = TRUE)) stop("Package not found")
+}
+install('caret')
+install('rpart')
+install('randomForest')
+install('gbm')
+install('plyr')
+```
+
+The training data for this project are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+Here we'll load the data. After initial inspection it was clear that there are a lot of holes in the data, labeled either as NA, "" or, in some cases, "#DIV/0!", so that is taken care of during loading.
+
+```{r, results='hide'}
+# download and load data
+if(!file.exists("pml-training.csv"))
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+              "pml-training.csv", "curl")
+if(!file.exists("pml-testing.csv"))
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+              "pml-testing.csv", "curl")
+training <- read.csv("pml-training.csv",na.strings=c("NA","#DIV/0!"))
+testing <- read.csv("pml-testing.csv",na.strings=c("NA","","#DIV/0!"))
+```
+
+##Explore
+
+```{r}
+dim(training)
+na_test<-(sapply(training, function(x) {sum(is.na(x))}))
+table(na_test)
+```
+
+Once loaded, we notice that there are 160 columns, which is a large number of features. We also know that there are a lot of NAs in the data. We want to remove non-relevant columns from the observations, including any columns with data that is just too sparse. We find that just 60 of the 160 columns in the data are not mostly or totally NAs. Additionally, there are a few columns (the first 7) that are really not relevant for prediction, so we remove them also.
+
+```{r}
+training <- training[, names(na_test[na_test<19000])]
+head(names(training),7)
+training <- training[, -c(1:7)]
+```
+
+We now have 52 features plus the prediction/classification 'classe'.
+
+```{r}
+dim(training)
+summary(training$classe)
+```
+
+##Analyze
+
+Because we have so many observations (over 19000), we can reasonably limit our sample training set to just a few thousand observations, and see how well they can be used to predict the others. So, we're going to split the 'training' set 20/80 for faster training/validation testing. Note that this is being done only to elect which model to use, not to actually train the model.
+
+```{r}
+set.seed(42)
+inTrain <- createDataPartition(y=training$classe, p=0.2, list=F)
+trainers <- training[inTrain, ]
+validate <- training[-inTrain, ]
+```
+
+We'll use the 'trainers' data set to train a model and then 'validate' to check the model, to determine which model we should use to do the actual predictions.
+
+The first model to try is by using Recursive Partitioning and Regression Trees (rpart). We choose to use 4-fold cross validation. Increasing cross validation should prevent over fitting, but increasing the number beyond 3 appears to have little to no effect on this data, and costs more computationally.
+
+```{r}
+if (file.exists("fit_rpart.rda")) {
+  load("fit_rpart.rda") 
+} else {
+  set.seed(42)
+fit_rpart <- train(classe ~ ., data=trainers, method="rpart", trControl=trainControl(method="cv", number=4))
+  save(fit_rpart, file = "fit_rpart.rda")
+}
+confusionMatrix(predict(fit_rpart, newdata=validate), validate$classe)$overall[1]
+```
+
+The accuracy of rpart is not promising. Instead, let's look at the predictions from Random Forest (rf), which is known to be quite slow, so using a sample of only 20% of the initial data helps. Since we want to be able to recreate this document without having to build the model each time, we'll save it to disk and reuse it.
+
+```{r}
+if (file.exists("fit_rf.rda")) {
+  load("fit_rf.rda") 
+} else {
+set.seed(42)
+  fit_rf <- train(classe ~ ., data=trainers, method="rf", trControl=trainControl(method="cv", number=4))
+  save(fit_rf, file = "fit_rf.rda")
+}
+confusionMatrix(predict(fit_rf, newdata=validate), validate$classe)$overall[1]
+```
+
+This gives an accuracy rating of over 97.5%, and could possibly be used as is.  
+
+Additionally, we can also try using Gradient Boosting (gbm), which tends to be quicker than Random Forest.
+
+```{r}
+if (file.exists("fit_gbm.rda")) {
+  load("fit_gbm.rda") 
+} else {
+  set.seed(42)
+  fit_gbm <- train(classe ~ ., data=trainers, method="gbm", trControl=trainControl(method="cv", number=4), verbose=FALSE)
+  save(fit_gbm, file = "fit_gbm.rda")
+}
+confusionMatrix(predict(fit_gbm, newdata=validate), validate$classe)$overall[1]
+```
+
+Not quite as good as Random Forest, bit quicker. If time really is a constraint, Gradient Boosting would be useful. 
+
+In fact comparing these two models using resamples shows that rf is better than gbm across the board.
+
+```{r}
+rValues <- resamples(list(rf=fit_rf,gbm=fit_gbm))
+summary(rValues)
+```
+
+The Random Forest model was 97.5% accurate on a 20% sample, which is very promising. Gradient Boosting is not far behind, but if we want accurate predictions, we want to use the most accurate predictor. We could explore using the The Recursive Partitioning and Regression Trees method with a larger sample, but the degree of error just in initial classification precludes that.
+
+```{r}
+fit_rf$finalModel
+```
+
+We would like to use the out of bag error rate of 2.42% from the rf model to estimate our final error rate. The out of sample error rate should be the same for the Random Forest model, using the reported accuracy, we get 2.48%. This error rate is based on using only 20% of the training data. It is not clear what the final error rate would be with 5 times the data, but we could hope it would be significantly smaller.
+
+Of the three methods, Random Forest appears the most promising. We will now use it to create a new model that includes all of the training data. We could instead to a 80/20 split at this point to train and validate the model, but the above analysis provides enough confidence that this will produce a model that can be used to successfully predict the outcomes for the test set. This new model will be used for the predictions. 
+
+```{r}
+if (file.exists("fit_final.rda")) {
+  load("fit_final.rda") 
+} else {
+  set.seed(42)
+  fit_final <- train(classe ~ ., data=training, method="rf", trControl=trainControl(method="cv", number=4), allowParallel=TRUE)
+  save(fit_final, file = "fit_final.rda")
+}
+fit_final$finalModel
+fit_final$results
+```
+
+The final model shows that 27 variables were tried at each split, and a final out of bag error rate of only 0.41%. The out of sample rate based on the accuracy is about 0.7%. Conceivably we could get higher prediction accuracy by using a proximity matrix, or other more computationally intensive options, but the accuracy was already high enough that we chose not to do that. 
+
+##Conclusion
+
+We use the final model fit to provide predictions for the 20 testing samples. The following code was used to create the prediction files for submission. The actual answers are not printed here, however they were submitted and all were graded as: 'You are correct!' Therefore we are confident that the process of selecting and generating the model above was a sound one.
+
+```{r}
+answers<-predict(fit_final, newdata=testing)
+
+pml_write_files = function(x){
+  for(i in 1:length(x))
+    write.table(x[i],file=paste0("problem_id_",i,".txt"),quote=FALSE,row.names=FALSE,col.names=FALSE)
+}
+
+pml_write_files(answers)
+```
