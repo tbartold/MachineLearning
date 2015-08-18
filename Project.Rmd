@@ -76,94 +76,92 @@ summary(training$classe)
 
 ##Analyze
 
-Because we have so many observations (over 19000), we can reasonably limit our sample training set to just a few thousand observations, and see how well they can be used to predict the others. So, we're going to split the 'training' set 20/80 for faster training/validation testing. Note that this is being done only to elect which model to use, not to actually train the model.
+Because we have so many observations (over 19000), we want to see how well they can be used to predict the others. So, we're going to split the 'training' set 70/30 for training/validation testing. Note that this is being done only to elect which model to use, not to actually train the model for the test.
 
 ```{r}
 set.seed(42)
-inTrain <- createDataPartition(y=training$classe, p=0.2, list=F)
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=F)
 trainers <- training[inTrain, ]
 validate <- training[-inTrain, ]
 ```
 
 We'll use the 'trainers' data set to train a model and then 'validate' to check the model, to determine which model we should use to do the actual predictions.
 
-The first model to try is by using Recursive Partitioning and Regression Trees (rpart). We choose to use 4-fold cross validation. Increasing cross validation should prevent over fitting, but increasing the number beyond 3 appears to have little to no effect on this data, and costs more computationally.
+The first model to try is by using Recursive Partitioning and Regression Trees (rpart). We choose to use 10-fold cross validation. Selecting a smaller k-fold for cross validation could introduce over fitting, but increasing the number beyond 3 appears to have little to no effect on this data, and costs more computationally.
 
 ```{r}
 if (file.exists("fit_rpart.rda")) {
   load("fit_rpart.rda") 
 } else {
   set.seed(42)
-fit_rpart <- train(classe ~ ., data=trainers, method="rpart", trControl=trainControl(method="cv", number=4))
+fit_rpart <- train(classe ~ ., data=trainers, method="rpart", trControl=trainControl(method="cv", number=10))
   save(fit_rpart, file = "fit_rpart.rda")
 }
 confusionMatrix(predict(fit_rpart, newdata=validate), validate$classe)$overall[1]
 ```
 
-The accuracy of rpart is not promising. Instead, let's look at the predictions from Random Forest (rf), which is known to be quite slow, so using a sample of only 20% of the initial data helps. Since we want to be able to recreate this document without having to build the model each time, we'll save it to disk and reuse it.
+The 49% accuracy of rpart is not promising. Instead, let's look at the predictions from Random Forest (rf). Since we want to be able to recreate this document without having to build the model each time, we'll save it to disk and reuse it.
 
 ```{r}
 if (file.exists("fit_rf.rda")) {
   load("fit_rf.rda") 
 } else {
 set.seed(42)
-  fit_rf <- train(classe ~ ., data=trainers, method="rf", trControl=trainControl(method="cv", number=4))
+  fit_rf <- train(classe ~ ., data=trainers, method="rf", trControl=trainControl(method="cv", number=10))
   save(fit_rf, file = "fit_rf.rda")
 }
 confusionMatrix(predict(fit_rf, newdata=validate), validate$classe)$overall[1]
 ```
 
-This gives an accuracy rating of over 97.5%, and could possibly be used as is.  
-
-Additionally, we can also try using Gradient Boosting (gbm), which tends to be quicker than Random Forest.
+This gives an accuracy rating of over 99%, although it is a much slower method. With this accuracy, this model could possibly be used as is. We could explore using the faster Recursive Partitioning and Regression Trees method further, but the degree of error just in initial classification precludes that. However, before we select Random Forest, we can also try using Gradient Boosting (gbm), which tends to be quicker than Random Forest.
 
 ```{r}
 if (file.exists("fit_gbm.rda")) {
   load("fit_gbm.rda") 
 } else {
   set.seed(42)
-  fit_gbm <- train(classe ~ ., data=trainers, method="gbm", trControl=trainControl(method="cv", number=4), verbose=FALSE)
+  fit_gbm <- train(classe ~ ., data=trainers, method="gbm", trControl=trainControl(method="cv", number=10), verbose=FALSE)
   save(fit_gbm, file = "fit_gbm.rda")
 }
 confusionMatrix(predict(fit_gbm, newdata=validate), validate$classe)$overall[1]
 ```
 
-Not quite as good as Random Forest, bit quicker. If time really is a constraint, Gradient Boosting would be useful. 
+The accuracy of 96% is good, not quite as good as Random Forest, although it is a bit quicker. If time really is a constraint, Gradient Boosting could be useful. 
 
-In fact comparing these two models using resamples shows that rf is better than gbm across the board.
+In fact comparing these two models using resamples shows that rf is better than gbm across the board. Random Forest's minimums are better than Gradient Boosting's maximums.
 
 ```{r}
 rValues <- resamples(list(rf=fit_rf,gbm=fit_gbm))
 summary(rValues)
 ```
 
-The Random Forest model was 97.5% accurate on a 20% sample, which is very promising. Gradient Boosting is not far behind, but if we want accurate predictions, we want to use the most accurate predictor. We could explore using the The Recursive Partitioning and Regression Trees method with a larger sample, but the degree of error just in initial classification precludes that.
+The Random Forest model was 99% accurate on a 70% sample, which is very promising. Gradient Boosting is not far behind, but if we want accurate predictions, we want to use the most accurate predictor. 
 
 ```{r}
 fit_rf$finalModel
 ```
 
-We would like to use the out of bag error rate of 2.42% from the rf model to estimate our final error rate. The out of sample error rate should be the same for the Random Forest model, using the reported accuracy, we get 2.48%. This error rate is based on using only 20% of the training data. It is not clear what the final error rate would be with 5 times the data, but we could hope it would be significantly smaller.
+The out of bag error rate of 0.71% from the rf model is fiven, and there is no need to estimate it. We know that the out of sample error rate should be the same for the Random Forest model, and using the reported accuracy, we see 0.76%. This error rate is based on using 70% of the training data. Although we cannot estimate what the the final error rate would be with more of the data, but we can expect that it would be smaller.
 
-Of the three methods, Random Forest appears the most promising. We will now use it to create a new model that includes all of the training data. We could instead to a 80/20 split at this point to train and validate the model, but the above analysis provides enough confidence that this will produce a model that can be used to successfully predict the outcomes for the test set. This new model will be used for the predictions. 
+Of the three methods, Random Forest appears the most promising. We will now use it to create a new model that includes all of the training data. This new model will be used for the predictions. 
 
 ```{r}
 if (file.exists("fit_final.rda")) {
   load("fit_final.rda") 
 } else {
   set.seed(42)
-  fit_final <- train(classe ~ ., data=training, method="rf", trControl=trainControl(method="cv", number=4), allowParallel=TRUE)
+  fit_final <- train(classe ~ ., data=training, method="rf", trControl=trainControl(method="cv", number=10), allowParallel=TRUE)
   save(fit_final, file = "fit_final.rda")
 }
 fit_final$finalModel
 fit_final$results
 ```
 
-The final model shows that 27 variables were tried at each split, and a final out of bag error rate of only 0.41%. The out of sample rate based on the accuracy is about 0.7%. Conceivably we could get higher prediction accuracy by using a proximity matrix, or other more computationally intensive options, but the accuracy was already high enough that we chose not to do that. 
+The final model shows that 2 variables were tried at each split for the highest accuracy, to achieve a final out of bag error rate of only 0.40%. The out of sample rate based on the accuracy is about 0.49%. Conceivably we could get an even higher prediction accuracy by using a proximity matrix, or other more computationally intensive options, but the accuracy is already high enough that we choose not to do that. 
 
 ##Conclusion
 
-We use the final model fit to provide predictions for the 20 testing samples. The following code was used to create the prediction files for submission. The actual answers are not printed here, however they were submitted and all were graded as: 'You are correct!' Therefore we are confident that the process of selecting and generating the model above was a sound one.
+We use the final model fit to provide predictions for the 20 testing samples. The following code was used to create the prediction files for submission. The actual answers are not printed here (since we're posting this on a public forum), however they were submitted and all were graded as: 'You are correct!' Therefore we are confident that the process of selecting and generating the model above was a sound one.
 
 ```{r}
 answers<-predict(fit_final, newdata=testing)
