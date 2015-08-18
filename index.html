@@ -129,48 +129,47 @@ head(names(training),7)</code></pre>
 </div>
 <div id="analyze" class="section level2">
 <h2>Analyze</h2>
-<p>Because we have so many observations (over 19000), we can reasonably limit our sample training set to just a few thousand observations, and see how well they can be used to predict the others. So, we’re going to split the ‘training’ set 20/80 for faster training/validation testing. Note that this is being done only to elect which model to use, not to actually train the model.</p>
+<p>Because we have so many observations (over 19000), we want to see how well they can be used to predict the others. So, we’re going to split the ‘training’ set 70/30 for training/validation testing. Note that this is being done only to elect which model to use, not to actually train the model for the test.</p>
 <pre class="r"><code>set.seed(42)
-inTrain &lt;- createDataPartition(y=training$classe, p=0.2, list=F)
+inTrain &lt;- createDataPartition(y=training$classe, p=0.7, list=F)
 trainers &lt;- training[inTrain, ]
 validate &lt;- training[-inTrain, ]</code></pre>
 <p>We’ll use the ‘trainers’ data set to train a model and then ‘validate’ to check the model, to determine which model we should use to do the actual predictions.</p>
-<p>The first model to try is by using Recursive Partitioning and Regression Trees (rpart). We choose to use 4-fold cross validation. Increasing cross validation should prevent over fitting, but increasing the number beyond 3 appears to have little to no effect on this data, and costs more computationally.</p>
+<p>The first model to try is by using Recursive Partitioning and Regression Trees (rpart). We choose to use 10-fold cross validation. Selecting a smaller k-fold for cross validation could introduce over fitting, but increasing the number beyond 3 appears to have little to no effect on this data, and costs more computationally.</p>
 <pre class="r"><code>if (file.exists(&quot;fit_rpart.rda&quot;)) {
   load(&quot;fit_rpart.rda&quot;) 
 } else {
   set.seed(42)
-fit_rpart &lt;- train(classe ~ ., data=trainers, method=&quot;rpart&quot;, trControl=trainControl(method=&quot;cv&quot;, number=4))
+fit_rpart &lt;- train(classe ~ ., data=trainers, method=&quot;rpart&quot;, trControl=trainControl(method=&quot;cv&quot;, number=10))
   save(fit_rpart, file = &quot;fit_rpart.rda&quot;)
 }
 confusionMatrix(predict(fit_rpart, newdata=validate), validate$classe)$overall[1]</code></pre>
 <pre><code>##  Accuracy 
-## 0.5144951</code></pre>
-<p>The accuracy of rpart is not promising. Instead, let’s look at the predictions from Random Forest (rf), which is known to be quite slow, so using a sample of only 20% of the initial data helps. Since we want to be able to recreate this document without having to build the model each time, we’ll save it to disk and reuse it.</p>
+## 0.4885302</code></pre>
+<p>The 49% accuracy of rpart is not promising. Instead, let’s look at the predictions from Random Forest (rf). Since we want to be able to recreate this document without having to build the model each time, we’ll save it to disk and reuse it.</p>
 <pre class="r"><code>if (file.exists(&quot;fit_rf.rda&quot;)) {
   load(&quot;fit_rf.rda&quot;) 
 } else {
 set.seed(42)
-  fit_rf &lt;- train(classe ~ ., data=trainers, method=&quot;rf&quot;, trControl=trainControl(method=&quot;cv&quot;, number=4))
+  fit_rf &lt;- train(classe ~ ., data=trainers, method=&quot;rf&quot;, trControl=trainControl(method=&quot;cv&quot;, number=10))
   save(fit_rf, file = &quot;fit_rf.rda&quot;)
 }
 confusionMatrix(predict(fit_rf, newdata=validate), validate$classe)$overall[1]</code></pre>
-<pre><code>## Accuracy 
-## 0.975215</code></pre>
-<p>This gives an accuracy rating of over 97.5%, and could possibly be used as is.</p>
-<p>Additionally, we can also try using Gradient Boosting (gbm), which tends to be quicker than Random Forest.</p>
+<pre><code>##  Accuracy 
+## 0.9935429</code></pre>
+<p>This gives an accuracy rating of over 99%, although it is a much slower method. With this accuracy, this model could possibly be used as is. We could explore using the faster Recursive Partitioning and Regression Trees method further, but the degree of error just in initial classification precludes that. However, before we select Random Forest, we can also try using Gradient Boosting (gbm), which tends to be quicker than Random Forest.</p>
 <pre class="r"><code>if (file.exists(&quot;fit_gbm.rda&quot;)) {
   load(&quot;fit_gbm.rda&quot;) 
 } else {
   set.seed(42)
-  fit_gbm &lt;- train(classe ~ ., data=trainers, method=&quot;gbm&quot;, trControl=trainControl(method=&quot;cv&quot;, number=4), verbose=FALSE)
+  fit_gbm &lt;- train(classe ~ ., data=trainers, method=&quot;gbm&quot;, trControl=trainControl(method=&quot;cv&quot;, number=10), verbose=FALSE)
   save(fit_gbm, file = &quot;fit_gbm.rda&quot;)
 }
 confusionMatrix(predict(fit_gbm, newdata=validate), validate$classe)$overall[1]</code></pre>
 <pre><code>##  Accuracy 
-## 0.9476266</code></pre>
-<p>Not quite as good as Random Forest, bit quicker. If time really is a constraint, Gradient Boosting would be useful.</p>
-<p>In fact comparing these two models using resamples shows that rf is better than gbm across the board.</p>
+## 0.9626168</code></pre>
+<p>The accuracy of 96% is good, not quite as good as Random Forest, although it is a bit quicker. If time really is a constraint, Gradient Boosting could be useful.</p>
+<p>In fact comparing these two models using resamples shows that rf is better than gbm across the board. Random Forest’s minimums are better than Gradient Boosting’s maximums.</p>
 <pre class="r"><code>rValues &lt;- resamples(list(rf=fit_rf,gbm=fit_gbm))
 summary(rValues)</code></pre>
 <pre><code>## 
@@ -178,41 +177,41 @@ summary(rValues)</code></pre>
 ## summary.resamples(object = rValues)
 ## 
 ## Models: rf, gbm 
-## Number of resamples: 4 
+## Number of resamples: 10 
 ## 
 ## Accuracy 
 ##       Min. 1st Qu. Median   Mean 3rd Qu.   Max. NA's
-## rf  0.9582  0.9597 0.9648 0.9643  0.9694 0.9695    0
-## gbm 0.9246  0.9383 0.9445 0.9412  0.9473 0.9512    0
+## rf  0.9884  0.9907 0.9934 0.9925  0.9942 0.9949    0
+## gbm 0.9563  0.9601 0.9614 0.9620  0.9643 0.9687    0
 ## 
 ## Kappa 
 ##       Min. 1st Qu. Median   Mean 3rd Qu.   Max. NA's
-## rf  0.9472   0.949 0.9555 0.9549  0.9613 0.9614    0
-## gbm 0.9045   0.922 0.9298 0.9256  0.9334 0.9382    0</code></pre>
-<p>The Random Forest model was 97.5% accurate on a 20% sample, which is very promising. Gradient Boosting is not far behind, but if we want accurate predictions, we want to use the most accurate predictor. We could explore using the The Recursive Partitioning and Regression Trees method with a larger sample, but the degree of error just in initial classification precludes that.</p>
+## rf  0.9853  0.9883 0.9917 0.9905  0.9926 0.9936    0
+## gbm 0.9446  0.9496 0.9512 0.9519  0.9549 0.9604    0</code></pre>
+<p>The Random Forest model was 99% accurate on a 70% sample, which is very promising. Gradient Boosting is not far behind, but if we want accurate predictions, we want to use the most accurate predictor.</p>
 <pre class="r"><code>fit_rf$finalModel</code></pre>
 <pre><code>## 
 ## Call:
 ##  randomForest(x = x, y = y, mtry = param$mtry) 
 ##                Type of random forest: classification
 ##                      Number of trees: 500
-## No. of variables tried at each split: 27
+## No. of variables tried at each split: 2
 ## 
-##         OOB estimate of  error rate: 2.42%
+##         OOB estimate of  error rate: 0.71%
 ## Confusion matrix:
-##      A   B   C   D   E class.error
-## A 1107   5   3   0   1 0.008064516
-## B   15 728  16   1   0 0.042105263
-## C    0  14 663   8   0 0.032116788
-## D    0   0  18 626   0 0.027950311
-## E    0   4   3   7 708 0.019390582</code></pre>
-<p>We would like to use the out of bag error rate of 2.42% from the rf model to estimate our final error rate. The out of sample error rate should be the same for the Random Forest model, using the reported accuracy, we get 2.48%. This error rate is based on using only 20% of the training data. It is not clear what the final error rate would be with 5 times the data, but we could hope it would be significantly smaller.</p>
-<p>Of the three methods, Random Forest appears the most promising. We will now use it to create a new model that includes all of the training data. We could instead to a 80/20 split at this point to train and validate the model, but the above analysis provides enough confidence that this will produce a model that can be used to successfully predict the outcomes for the test set. This new model will be used for the predictions.</p>
+##      A    B    C    D    E  class.error
+## A 3904    1    0    0    1 0.0005120328
+## B   16 2637    5    0    0 0.0079006772
+## C    0   23 2370    3    0 0.0108514190
+## D    0    0   39 2212    1 0.0177619893
+## E    0    0    1    7 2517 0.0031683168</code></pre>
+<p>The out of bag error rate of 0.71% from the rf model is fiven, and there is no need to estimate it. We know that the out of sample error rate should be the same for the Random Forest model, and using the reported accuracy, we see 0.76%. This error rate is based on using 70% of the training data. Although we cannot estimate what the the final error rate would be with more of the data, but we can expect that it would be smaller.</p>
+<p>Of the three methods, Random Forest appears the most promising. We will now use it to create a new model that includes all of the training data. This new model will be used for the predictions.</p>
 <pre class="r"><code>if (file.exists(&quot;fit_final.rda&quot;)) {
   load(&quot;fit_final.rda&quot;) 
 } else {
   set.seed(42)
-  fit_final &lt;- train(classe ~ ., data=training, method=&quot;rf&quot;, trControl=trainControl(method=&quot;cv&quot;, number=4), allowParallel=TRUE)
+  fit_final &lt;- train(classe ~ ., data=training, method=&quot;rf&quot;, trControl=trainControl(method=&quot;cv&quot;, number=10), allowParallel=TRUE)
   save(fit_final, file = &quot;fit_final.rda&quot;)
 }
 fit_final$finalModel</code></pre>
@@ -221,26 +220,26 @@ fit_final$finalModel</code></pre>
 ##  randomForest(x = x, y = y, mtry = param$mtry, allowParallel = TRUE) 
 ##                Type of random forest: classification
 ##                      Number of trees: 500
-## No. of variables tried at each split: 27
+## No. of variables tried at each split: 2
 ## 
-##         OOB estimate of  error rate: 0.41%
+##         OOB estimate of  error rate: 0.4%
 ## Confusion matrix:
 ##      A    B    C    D    E  class.error
-## A 5577    2    0    0    1 0.0005376344
-## B   19 3774    4    0    0 0.0060574137
-## C    0    9 3405    8    0 0.0049678551
-## D    0    0   22 3191    3 0.0077736318
-## E    0    1    5    7 3594 0.0036041031</code></pre>
+## A 5579    1    0    0    0 0.0001792115
+## B   12 3783    2    0    0 0.0036871214
+## C    0   18 3404    0    0 0.0052600818
+## D    0    0   38 3176    2 0.0124378109
+## E    0    0    0    5 3602 0.0013861935</code></pre>
 <pre class="r"><code>fit_final$results</code></pre>
 <pre><code>##   mtry  Accuracy     Kappa  AccuracySD     KappaSD
-## 1    2 0.9929670 0.9911030 0.001347741 0.001704634
-## 2   27 0.9930689 0.9912320 0.001442110 0.001824306
-## 3   52 0.9875140 0.9842043 0.002355819 0.002979984</code></pre>
-<p>The final model shows that 27 variables were tried at each split, and a final out of bag error rate of only 0.41%. The out of sample rate based on the accuracy is about 0.7%. Conceivably we could get higher prediction accuracy by using a proximity matrix, or other more computationally intensive options, but the accuracy was already high enough that we chose not to do that.</p>
+## 1    2 0.9951077 0.9938112 0.001298000 0.001642051
+## 2   27 0.9946491 0.9932311 0.001206229 0.001526060
+## 3   52 0.9897562 0.9870407 0.002298593 0.002909506</code></pre>
+<p>The final model shows that 2 variables were tried at each split for the highest accuracy, to achieve a final out of bag error rate of only 0.40%. The out of sample rate based on the accuracy is about 0.49%. Conceivably we could get an even higher prediction accuracy by using a proximity matrix, or other more computationally intensive options, but the accuracy is already high enough that we choose not to do that.</p>
 </div>
 <div id="conclusion" class="section level2">
 <h2>Conclusion</h2>
-<p>We use the final model fit to provide predictions for the 20 testing samples. The following code was used to create the prediction files for submission. The actual answers are not printed here, however they were submitted and all were graded as: ‘You are correct!’ Therefore we are confident that the process of selecting and generating the model above was a sound one.</p>
+<p>We use the final model fit to provide predictions for the 20 testing samples. The following code was used to create the prediction files for submission. The actual answers are not printed here (since we’re posting this on a public forum), however they were submitted and all were graded as: ‘You are correct!’ Therefore we are confident that the process of selecting and generating the model above was a sound one.</p>
 <pre class="r"><code>answers&lt;-predict(fit_final, newdata=testing)
 
 pml_write_files = function(x){
